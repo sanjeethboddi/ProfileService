@@ -1,0 +1,42 @@
+version: '3.1'
+services:
+    profile_service:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: profile_service
+        restart: unless-stopped
+        env_file: .env
+        ports:
+            - "80:80"
+            - "443:443"
+        depends_on:
+            - profile_mongodb
+        links:
+            - "profile_mongodb"
+        networks:
+            - backend
+
+    profile_mongodb:
+        image: mongo:4.0.3
+        container_name: profile_mongodb
+        restart: unless-stopped
+        # env_file: .env
+        volumes:
+            - "../mongo-entrypoint/:/docker-entrypoint-initdb.d/"
+        ports:
+            - "27017:27017"
+        expose:
+            - "27017"
+        networks:
+            - backend
+
+
+networks:
+  backend:
+    driver: nn
+
+    
+    
+
+  
