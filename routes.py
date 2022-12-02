@@ -2,16 +2,27 @@ from fastapi import APIRouter, Body, Request, Response, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from typing import List
 
-from models.profile import Profile, ProfileUpdate
+from models import Profile, ProfileUpdate
+import requests
 
 router = APIRouter()
 
 db_name = "profiles"
 
-@router.post("/", response_description="Create a new profile", status_code=status.HTTP_201_CREATED, response_model=Profile)
-def create_profile(request: Request, profile: Profile = Body(...)):
-    profile = jsonable_encoder(profile)
-    new_book = request.app.database[db_name].insert_one(profile)
+@router.post("/callAuth")
+def callAuth(request: Request, token: str):
+    resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+    return resp.json()
+
+@router.post("/{token}", response_description="Create a new profile", status_code=status.HTTP_201_CREATED, response_model=Profile)
+def create_profile(request: Request, token:str, profile: Profile = Body(...)):
+    resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+    uid = profile.uid
+    if  resp.status_code != 200 or resp.json()["username"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    profile_json = jsonable_encoder(profile)
+    new_book = request.app.database[db_name].insert_one(profile_json)
+    requests.post(request.app.graph_service+f"/createUser/{token}", json={"uid": uid})
     created_profile = request.app.database[db_name].find_one(
         {"_id": new_book.inserted_id}
     )
@@ -28,8 +39,12 @@ def find_profile(id: str, request: Request):
         return book
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Book with ID {id} not found")
 
-@router.put("/{id}", response_description="Update a profile", response_model=Profile)
-def update_profile(id: str, request: Request, profile: ProfileUpdate = Body(...)):
+@router.put("/{id}/{token}", response_description="Update a profile", response_model=Profile)
+def update_profile(id: str, request: Request, token:str, profile: ProfileUpdate = Body(...)):
+    id = id.lower()
+    resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+    if not resp.ok or resp.json()["username"] != id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     profile = {k: v for k, v in profile.dict().items() if v is not None}
     if len(profile) >= 1:
         update_result = request.app.database[db_name].update_one(
@@ -48,11 +63,16 @@ def update_profile(id: str, request: Request, profile: ProfileUpdate = Body(...)
 
 
 
-@router.delete("/{id}", response_description="Delete a book")
-def delete_profile(id: str, request: Request, response: Response):
+@router.delete("/{id}/{token}", response_description="Delete a book")
+def delete_profile(id: str, token:str, request: Request, response: Response):
+    id = id.lower()
+    resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+    if not resp.ok  or resp.json()["username"] != id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     delete_result = request.app.database[db_name].delete_one({"_id": id})
 
     if delete_result.deleted_count == 1:
+        requests.post(request.app.graph_service+f"/deleteUser/{token}", json={"uid": id})
         response.status_code = status.HTTP_204_NO_CONTENT
         return response
 
