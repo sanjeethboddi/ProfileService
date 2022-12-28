@@ -9,10 +9,10 @@ router = APIRouter()
 
 db_name = "profiles"
 
-@router.post("/callAuth")
-def callAuth(request: Request, token: str):
-    resp =  requests.post(request.app.auth_service+f"/verify/{token}")
-    return resp.json()
+# @router.post("/callAuth")
+# def callAuth(request: Request, token: str):
+#     resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+#     return resp.json()
 
 @router.post("/{token}", response_description="Create a new profile", status_code=status.HTTP_201_CREATED, response_model=Profile)
 def create_profile(request: Request, token:str, profile: Profile = Body(...)):
@@ -21,6 +21,9 @@ def create_profile(request: Request, token:str, profile: Profile = Body(...)):
     if  resp.status_code != 200 or resp.json()["username"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
     profile_json = jsonable_encoder(profile)
+    # find if uid exists
+    if request.app.database[db_name].find_one({"_id": uid}):
+        raise HTTPException(status_code=409, detail="Profile already exists")
     new_book = request.app.database[db_name].insert_one(profile_json)
     requests.post(request.app.graph_service+f"/createUser/{token}", json={"uid": uid})
     created_profile = request.app.database[db_name].find_one(
@@ -29,15 +32,19 @@ def create_profile(request: Request, token:str, profile: Profile = Body(...)):
     return created_profile
 
 @router.get("/", response_description="List all profiles", response_model=List[Profile])
-def list_profiles(request: Request):
-    books = list(request.app.database[db_name].find(limit=100))
-    return books
+def list_profiles(request: Request, response: Response):
+    profiles = list(request.app.database[db_name].find(limit=100))
+    if profiles:
+        response.status_code = status.HTTP_200_OK
+    else:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    return profiles
 
 @router.get("/{id}", response_description="Get a single profile by id", response_model=Profile)
 def find_profile(id: str, request: Request):
-    if (book := request.app.database[db_name].find_one({"_id": id})) is not None:
-        return book
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Book with ID {id} not found")
+    if (profile := request.app.database[db_name].find_one({"_id": id})) is not None:
+        return profile
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Profile with ID {id} not found")
 
 @router.put("/{id}/{token}", response_description="Update a profile", response_model=Profile)
 def update_profile(id: str, request: Request, token:str, profile: ProfileUpdate = Body(...)):
