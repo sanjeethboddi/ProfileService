@@ -17,8 +17,9 @@ db_name = "profiles"
 @router.post("/{token}", response_description="Create a new profile", status_code=status.HTTP_201_CREATED, response_model=Profile)
 def create_profile(request: Request, token:str, profile: Profile = Body(...)):
     resp =  requests.post(request.app.auth_service+f"/verify/{token}")
+    profile.uid = profile.uid.lower()
     uid = profile.uid
-    if  resp.status_code != 200 or resp.json()["username"] != uid:
+    if  resp.status_code != 200 or resp.json()["username"].lower() != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
     profile_json = jsonable_encoder(profile)
     # find if uid exists
@@ -42,6 +43,7 @@ def list_profiles(request: Request, response: Response):
 
 @router.get("/{id}", response_description="Get a single profile by id", response_model=Profile)
 def find_profile(id: str, request: Request):
+    id = id.lower()
     if (profile := request.app.database[db_name].find_one({"_id": id})) is not None:
         return profile
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Profile with ID {id} not found")
@@ -50,7 +52,7 @@ def find_profile(id: str, request: Request):
 def update_profile(id: str, request: Request, token:str, profile: ProfileUpdate = Body(...)):
     id = id.lower()
     resp =  requests.post(request.app.auth_service+f"/verify/{token}")
-    if not resp.ok or resp.json()["username"] != id:
+    if resp.status_code != 200 or ('username' in resp.json() and resp.json()["username"].lower() != id):
         raise HTTPException(status_code=401, detail="Unauthorized")
     profile = {k: v for k, v in profile.dict().items() if v is not None}
     if len(profile) >= 1:
@@ -66,7 +68,7 @@ def update_profile(id: str, request: Request, token:str, profile: ProfileUpdate 
     ) is not None:
         return existing_profile
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Profile with ID {id} not found")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Couldn't update profile.")
 
 
 
